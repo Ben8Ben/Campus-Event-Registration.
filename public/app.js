@@ -1,86 +1,221 @@
-// =========================================================
-// IPT1 · Student Directory — starter front end
-// Talks to the Express API in server.js using fetch + JSON.
-// =========================================================
 
-// Same origin (page served by Express) → a relative URL works.
-// If you open index.html with Live Server instead, use:
-// const API = "http://localhost:3000/api/students";
-const API = "/api/students";
+// ==========================================
+// IPT1 - Campus Event Registration System
+// Frontend JavaScript
+// ==========================================
 
-const list = document.querySelector("#list");
-const statusEl = document.querySelector("#status");
-const form = document.querySelector("#form");
+// Get HTML elements
+const form = document.querySelector("#registration-form");
 const nameInput = document.querySelector("#name");
 const sectionInput = document.querySelector("#section");
+const eventInput = document.querySelector("#event");
 
-function showStatus(message, isError = false) {
-  statusEl.textContent = message;
-  statusEl.className = isError ? "error" : "";
+const submitButton = document.querySelector("#submit-button");
+const refreshButton = document.querySelector("#refresh-button");
+
+const formMessage = document.querySelector("#form-message");
+const listMessage = document.querySelector("#list-message");
+const registrationList = document.querySelector("#registration-list");
+
+// Display messages
+function showMessage(element, message, type = "") {
+  element.textContent = message;
+  element.className = `message ${type}`;
 }
 
-// READ
-async function loadStudents() {
-  try {
-    const res = await fetch(API);
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const students = await res.json();
-    render(students);
-    showStatus(`${students.length} student(s)`);
-  } catch (err) {
-    showStatus(`Could not load students: ${err.message}`, true);
+// Create a table cell safely
+function makeCell(value) {
+  const cell = document.createElement("td");
+  cell.textContent = String(value);
+  return cell;
+}
+
+// Display all registrations in the table
+function renderRegistrations(registrations) {
+  registrationList.replaceChildren();
+
+  if (!Array.isArray(registrations)) {
+    showMessage(listMessage, "Invalid registration data.", "error");
+    return;
   }
-}
 
-function render(students) {
-  list.innerHTML = "";
-  for (const s of students) {
-    const li = document.createElement("li");
-    const label = document.createElement("span");
-    label.textContent = `${s.name} — BSIT ${s.section}`;   // textContent: safe for user text
+  if (registrations.length === 0) {
+    const row = document.createElement("tr");
+    const cell = document.createElement("td");
 
-    const del = document.createElement("button");
-    del.textContent = "Delete";
-    del.addEventListener("click", () => deleteStudent(s.id));
+    cell.colSpan = 5;
+    cell.textContent = "No registrations yet.";
 
-    li.append(label, del);
-    list.appendChild(li);
+    row.appendChild(cell);
+    registrationList.appendChild(row);
+    return;
   }
+
+  registrations.forEach((registration) => {
+    const row = document.createElement("tr");
+
+    row.appendChild(makeCell(registration.id));
+    row.appendChild(makeCell(registration.name));
+    row.appendChild(makeCell(registration.section));
+    row.appendChild(makeCell(registration.event));
+
+    const actionCell = document.createElement("td");
+    const deleteButton = document.createElement("button");
+
+    deleteButton.type = "button";
+    deleteButton.textContent = "Delete";
+    deleteButton.dataset.id = registration.id;
+    deleteButton.className = "delete-button";
+
+    actionCell.appendChild(deleteButton);
+    row.appendChild(actionCell);
+
+    registrationList.appendChild(row);
+  });
 }
 
-// CREATE
-form.addEventListener("submit", async (event) => {
-  event.preventDefault();
-  showStatus("Saving…");
+// GET: Load all registrations from the server
+async function loadRegistrations() {
+  showMessage(listMessage, "Loading registrations...");
+  refreshButton.disabled = true;
+
   try {
-    const res = await fetch(API, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: nameInput.value, section: sectionInput.value })
-    });
-    if (!res.ok) {
-      const { error } = await res.json();
-      return showStatus(error, true);
+    const response = await fetch("/api/events");
+
+    if (!response.ok) {
+      throw new Error(
+        `Unable to load registrations. HTTP ${response.status}`
+      );
     }
-    nameInput.value = "";
-    nameInput.focus();
-    loadStudents();
-  } catch (err) {
-    showStatus(`Could not save: ${err.message}`, true);
+
+    const registrations = await response.json();
+
+    renderRegistrations(registrations);
+
+    showMessage(
+      listMessage,
+      `${registrations.length} registration(s) found.`,
+      "success"
+    );
+
+  } catch (error) {
+    showMessage(listMessage, error.message, "error");
+
+  } finally {
+    refreshButton.disabled = false;
+  }
+}
+
+// POST: Add a new registration
+form.addEventListener("submit", async (e) => {
+  e.preventDefault();
+
+  const registration = {
+    name: nameInput.value.trim(),
+    section: sectionInput.value.trim(),
+    event: eventInput.value.trim()
+  };
+
+  if (
+    !registration.name ||
+    !registration.section ||
+    !registration.event
+  ) {
+    showMessage(
+      formMessage,
+      "Please complete all fields.",
+      "error"
+    );
+    return;
+  }
+
+  submitButton.disabled = true;
+  showMessage(formMessage, "Submitting registration...");
+
+  try {
+    const response = await fetch("/api/events", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(registration)
+    });
+
+    const result = await response.json();
+
+    if (!response.ok) {
+      throw new Error(
+        result.error || `Request failed. HTTP ${response.status}`
+      );
+    }
+
+    showMessage(
+      formMessage,
+      `Registration added successfully for ${result.name}!`,
+      "success"
+    );
+
+    form.reset();
+
+    await loadRegistrations();
+
+  } catch (error) {
+    showMessage(formMessage, error.message, "error");
+
+  } finally {
+    submitButton.disabled = false;
   }
 });
 
-// DELETE
-async function deleteStudent(id) {
-  try {
-    const res = await fetch(`${API}/${id}`, { method: "DELETE" });
-    if (res.status !== 204) throw new Error(`HTTP ${res.status}`);
-    loadStudents();
-  } catch (err) {
-    showStatus(`Could not delete: ${err.message}`, true);
+// DELETE: Remove a registration
+registrationList.addEventListener("click", async (e) => {
+  const button = e.target.closest("button[data-id]");
+
+  if (!button) {
+    return;
   }
-}
 
-// TODO (Portfolio Output): add an Edit button that sends PUT /api/students/:id
+  const id = button.dataset.id;
 
-loadStudents();
+  button.disabled = true;
+  showMessage(listMessage, "Deleting registration...");
+
+  try {
+    const response = await fetch(
+      `/api/events/${encodeURIComponent(id)}`,
+      {
+        method: "DELETE"
+      }
+    );
+
+    if (response.status === 404) {
+      throw new Error(
+        "Registration not found. Please refresh the list."
+      );
+    }
+
+    if (!response.ok) {
+      throw new Error(`Delete failed. HTTP ${response.status}`);
+    }
+
+    showMessage(
+      formMessage,
+      "Registration deleted successfully!",
+      "success"
+    );
+
+    await loadRegistrations();
+
+  } catch (error) {
+    showMessage(listMessage, error.message, "error");
+
+  } finally {
+    button.disabled = false;
+  }
+});
+
+// Refresh button
+refreshButton.addEventListener("click", loadRegistrations);
+
+// Load registrations when the page opens
+loadRegistrations();
